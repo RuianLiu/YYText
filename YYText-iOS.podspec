@@ -1,10 +1,10 @@
 Pod::Spec.new do |s|
-  s.name         = 'YYText'
+  s.name         = 'YYText-iOS'
   s.summary      = 'Powerful text framework for iOS to display and edit rich text.'
   s.version      = '1.0.2'
   s.license      = { :type => 'MIT', :file => 'LICENSE' }
   s.authors      = { 'ibireme' => 'lra_developer@126.com' }
-  s.social_media_url = 'http://blog.ibireme.com'
+  s.social_media_url = 'https://github.com/RuianLiu/YYText'
   s.homepage     = 'https://github.com/RuianLiu/YYText'
   s.platform     = :ios, '12.0'
   s.ios.deployment_target = '12.0'
