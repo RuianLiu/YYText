@@ -6,8 +6,8 @@ Pod::Spec.new do |s|
   s.authors      = { 'ibireme' => 'lra_developer@126.com' }
   s.social_media_url = 'http://blog.ibireme.com'
   s.homepage     = 'https://github.com/RuianLiu/YYText'
-  s.platform     = :ios, '6.0'
-  s.ios.deployment_target = '6.0'
+  s.platform     = :ios, '12.0'
+  s.ios.deployment_target = '12.0'
   s.source       = { :git => 'https://github.com/RuianLiu/YYText.git', :tag => s.version.to_s }
   
   s.requires_arc = true
