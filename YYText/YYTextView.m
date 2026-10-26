@@ -190,6 +190,12 @@ typedef NS_ENUM(NSUInteger, YYTextMoveDirection) {
 @synthesize autocapitalizationType = _autocapitalizationType;
 @synthesize autocorrectionType = _autocorrectionType;
 @synthesize spellCheckingType = _spellCheckingType;
+// Implement optional traits so callers can configure automatic text substitutions.
+@synthesize smartQuotesType = _smartQuotesType;
+@synthesize smartDashesType = _smartDashesType;
+@synthesize smartInsertDeleteType = _smartInsertDeleteType;
+@synthesize inlinePredictionType = _inlinePredictionType;
+@synthesize mathExpressionCompletionType = _mathExpressionCompletionType;
 @synthesize keyboardType = _keyboardType;
 @synthesize keyboardAppearance = _keyboardAppearance;
 @synthesize returnKeyType = _returnKeyType;
@@ -1421,56 +1427,66 @@ typedef NS_ENUM(NSUInteger, YYTextMoveDirection) {
 /// Replace the range with the text, and change the `_selectTextRange`.
 /// The caller should make sure the `range` and `text` are valid before call this method.
 - (void)_replaceRange:(YYTextRange *)range withText:(NSString *)text notifyToDelegate:(BOOL)notify{
-    if (NSEqualRanges(range.asRange, _selectedTextRange.asRange)) {
-        if (notify) [_inputDelegate selectionWillChange:self];
+    BOOL replacingSelection = NSEqualRanges(range.asRange, _selectedTextRange.asRange);
+    BOOL selectionMayChange = replacingSelection || range.asRange.length != text.length;
+    if (notify) {
+        if (selectionMayChange) [_inputDelegate selectionWillChange:self];
+        [_inputDelegate textWillChange:self];
+    }
+    // Keep the current selection visible to the input system until the text is replaced.
+    YYTextRange *updatedSelectedRange = _selectedTextRange;
+    if (replacingSelection) {
         NSRange newRange = NSMakeRange(0, 0);
-        newRange.location = _selectedTextRange.start.offset + text.length;
-        _selectedTextRange = [YYTextRange rangeWithRange:newRange];
-        if (notify) [_inputDelegate selectionDidChange:self];
+        newRange.location = updatedSelectedRange.start.offset + text.length;
+        updatedSelectedRange = [YYTextRange rangeWithRange:newRange];
     } else {
         if (range.asRange.length != text.length) {
-            if (notify) [_inputDelegate selectionWillChange:self];
-            NSRange unionRange = NSIntersectionRange(_selectedTextRange.asRange, range.asRange);
+            NSRange unionRange = NSIntersectionRange(updatedSelectedRange.asRange, range.asRange);
             if (unionRange.length == 0) {
                 // no intersection
-                if (range.end.offset <= _selectedTextRange.start.offset) {
+                if (range.end.offset <= updatedSelectedRange.start.offset) {
                     NSInteger ofs = (NSInteger)text.length - (NSInteger)range.asRange.length;
-                    NSRange newRange = _selectedTextRange.asRange;
+                    NSRange newRange = updatedSelectedRange.asRange;
                     newRange.location += ofs;
-                    _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+                    updatedSelectedRange = [YYTextRange rangeWithRange:newRange];
                 }
-            } else if (unionRange.length == _selectedTextRange.asRange.length) {
+            } else if (unionRange.length == updatedSelectedRange.asRange.length) {
                 // target range contains selected range
-                _selectedTextRange = [YYTextRange rangeWithRange:NSMakeRange(range.start.offset + text.length, 0)];
-            } else if (range.start.offset >= _selectedTextRange.start.offset &&
-                       range.end.offset <= _selectedTextRange.end.offset) {
+                updatedSelectedRange = [YYTextRange rangeWithRange:NSMakeRange(range.start.offset + text.length, 0)];
+            } else if (range.start.offset >= updatedSelectedRange.start.offset &&
+                       range.end.offset <= updatedSelectedRange.end.offset) {
                 // target range inside selected range
                 NSInteger ofs = (NSInteger)text.length - (NSInteger)range.asRange.length;
-                NSRange newRange = _selectedTextRange.asRange;
+                NSRange newRange = updatedSelectedRange.asRange;
                 newRange.length += ofs;
-                _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+                updatedSelectedRange = [YYTextRange rangeWithRange:newRange];
             } else {
                 // interleaving
-                if (range.start.offset < _selectedTextRange.start.offset) {
-                    NSRange newRange = _selectedTextRange.asRange;
+                if (range.start.offset < updatedSelectedRange.start.offset) {
+                    NSRange newRange = updatedSelectedRange.asRange;
                     newRange.location = range.start.offset + text.length;
                     newRange.length -= unionRange.length;
-                    _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+                    updatedSelectedRange = [YYTextRange rangeWithRange:newRange];
                 } else {
-                    NSRange newRange = _selectedTextRange.asRange;
+                    NSRange newRange = updatedSelectedRange.asRange;
                     newRange.length -= unionRange.length;
-                    _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+                    updatedSelectedRange = [YYTextRange rangeWithRange:newRange];
                 }
             }
-            _selectedTextRange = [self _correctedTextRange:_selectedTextRange];
-            if (notify) [_inputDelegate selectionDidChange:self];
         }
     }
-    if (notify) [_inputDelegate textWillChange:self];
     NSRange newRange = NSMakeRange(range.asRange.location, text.length);
     [_innerText replaceCharactersInRange:range.asRange withString:text];
     [_innerText yy_removeDiscontinuousAttributesInRange:newRange];
-    if (notify) [_inputDelegate textDidChange:self];
+    // Candidate replacement can grow the text ("ty" -> "typical"). Clamp against
+    // the new length, then publish completion only when both text and selection agree.
+    if (selectionMayChange) {
+        _selectedTextRange = [self _correctedTextRange:updatedSelectedRange];
+    }
+    if (notify) {
+        [_inputDelegate textDidChange:self];
+        if (selectionMayChange) [_inputDelegate selectionDidChange:self];
+    }
 }
 
 /// Save current typing attributes to the attributes holder.
@@ -1955,6 +1971,15 @@ typedef NS_ENUM(NSUInteger, YYTextMoveDirection) {
     _autocapitalizationType = UITextAutocapitalizationTypeSentences;
     _autocorrectionType = UITextAutocorrectionTypeDefault;
     _spellCheckingType = UITextSpellCheckingTypeDefault;
+    _smartQuotesType = UITextSmartQuotesTypeDefault;
+    _smartDashesType = UITextSmartDashesTypeDefault;
+    _smartInsertDeleteType = UITextSmartInsertDeleteTypeDefault;
+    if (@available(iOS 17.0, *)) {
+        _inlinePredictionType = UITextInlinePredictionTypeDefault;
+    }
+    if (@available(iOS 18.0, *)) {
+        _mathExpressionCompletionType = UITextMathExpressionCompletionTypeDefault;
+    }
     _keyboardType = UIKeyboardTypeDefault;
     _keyboardAppearance = UIKeyboardAppearanceDefault;
     _returnKeyType = UIReturnKeyDefault;
@@ -3237,6 +3262,12 @@ typedef NS_ENUM(NSUInteger, YYTextMoveDirection) {
 
 - (void)deleteBackward {
     [self _updateIfNeeded];
+    // Repair stale UTF-16 offsets before accessing the preceding character.
+    // Keep in-bounds selections unchanged, including their affinity and editing state.
+    if (_selectedTextRange.start.offset < 0 ||
+        _selectedTextRange.end.offset > (NSInteger)_innerText.length) {
+        self.selectedTextRange = [self _correctedTextRange:_selectedTextRange];
+    }
     NSRange range = _selectedTextRange.asRange;
     if (range.location == 0 && range.length == 0) return;
     _state.typingAttributesOnce = NO;
